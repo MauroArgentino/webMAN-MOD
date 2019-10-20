@@ -14,7 +14,7 @@ typedef struct
 	u32 num_tracks;
 	u16 port;
 	u8 pad[6];
-	ScsiTrackDescriptor tracks[32];
+	ScsiTrackDescriptor tracks[MAX_TRACKS];
 } __attribute__((packed)) _netiso_args;
 
 _netiso_args netiso_args;
@@ -398,8 +398,8 @@ static void netiso_thread(__attribute__((unused)) u64 arg)
 
 	if(emu_mode == EMU_PSX)
 	{
-		num_tracks = netiso_args.num_tracks;
 		tracks = netiso_args.tracks;
+		num_tracks = MIN(netiso_args.num_tracks, MAX_TRACKS);
 
 		is_cd2352 = 1;
 

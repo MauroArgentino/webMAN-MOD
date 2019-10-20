@@ -84,7 +84,7 @@ static int add_net_game(int ns, netiso_read_dir_result_data *data, int v3_entry,
 	{
 		int flen = strlen(data[v3_entry].name) - 4;
 		if(flen < 0) return FAILED;
-		if(!strcasestr(ISO_EXTENSIONS + 5, data[v3_entry].name + flen)) return FAILED;
+		if(!strcasestr(ISO_EXTENSIONS + 10, data[v3_entry].name + flen)) return FAILED;
 	}
 	else
 	{
@@ -122,10 +122,10 @@ static int add_net_game(int ns, netiso_read_dir_result_data *data, int v3_entry,
 
 	if(data[v3_entry].is_directory && IS_ISO_FOLDER)
 	{
-		const char *iso_ext[8] = {"iso", "ISO", "bin", "BIN", "mdf", "MDF", "img", "IMG"};
-		for(u8 e = 0; e < 10; e++)
+		const char *iso_ext[10] = {"iso", "ISO", "iso.0", "ISO.0", "bin", "BIN", "mdf", "MDF", "img", "IMG"};
+		for(u8 e = 0; e < 12; e++)
 		{
-			if(e >= 8) return FAILED;
+			if(e >= 10) return FAILED;
 
 			sprintf(tempstr, "%s/%s/%s.%s", param, data[v3_entry].name, data[v3_entry].name, iso_ext[e]);
 			if(remote_stat(ns, tempstr, &is_directory, &file_size, &mtime, &ctime, &atime, &abort_connection) == CELL_OK) break;
@@ -286,7 +286,7 @@ static bool is_iso_file(char *entry_name, int flen, u8 f1, u8 f0)
 				(              _IS(ext, ".iso")) ||
 				((flen > 6) && _IS(entry_name + flen - 6, ".iso.0")) ||
 				((IS_PS2_FOLDER) && strcasestr(".bin|.img|.mdf|.enc", ext)) ||
-				((IS_PSX_FOLDER || IS_DVD_FOLDER || IS_BLU_FOLDER) && strcasestr(ISO_EXTENSIONS + 12, ext))
+				((IS_PSX_FOLDER || IS_DVD_FOLDER || IS_BLU_FOLDER) && strcasestr(ISO_EXTENSIONS + 17, ext))
 				));
 #else
 	return (IS_PS2_FOLDER && flen > 8 && IS(entry_name + flen - 8, ".BIN.ENC"));

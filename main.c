@@ -137,10 +137,10 @@ SYS_MODULE_EXIT(wwwd_stop);
 #define ORG_LIBFS_PATH		"/dev_flash/sys/external/libfs.sprx"
 #define NEW_LIBFS_PATH		"/dev_hdd0/tmp/wm_res/libfs.sprx"
 #define SLAUNCH_FILE		"/dev_hdd0/tmp/wmtmp/slist.bin"
-
+#define DEL_CACHED_ISO		"/dev_hdd0/tmp/wmtmp/deliso.txt"
 
 #define WM_APPNAME			"webMAN"
-#define WM_VERSION			"1.47.25 MOD"
+#define WM_VERSION			"1.47.25.10 MOD"
 #define WM_APP_VERSION		WM_APPNAME " " WM_VERSION
 #define WEBMAN_MOD			WM_APPNAME " MOD"
 
@@ -253,7 +253,7 @@ SYS_MODULE_EXIT(wwwd_stop);
 
 #define THREAD_STACK_SIZE_STOP_THREAD	THREAD_STACK_SIZE_6KB
 #define THREAD_STACK_SIZE_INSTALL_PKG	THREAD_STACK_SIZE_6KB
-#define THREAD_STACK_SIZE_POLL_THREAD	THREAD_STACK_SIZE_32KB
+#define THREAD_STACK_SIZE_POLL_THREAD	THREAD_STACK_SIZE_48KB
 #define THREAD_STACK_SIZE_UPDATE_XML	THREAD_STACK_SIZE_128KB
 #define THREAD_STACK_SIZE_MOUNT_GAME	THREAD_STACK_SIZE_128KB
 
@@ -296,6 +296,7 @@ SYS_MODULE_EXIT(wwwd_stop);
 #endif
 #define MOBILE_HTML				HTML_BASE_PATH "/mobile.html"
 #define GAMELIST_JS				HTML_BASE_PATH "/gamelist.js"
+#define CPU_RSX_CHART			HTML_BASE_PATH "/cpursx.html"
 
 #ifndef EMBED_JS
 #define COMMON_CSS				HTML_BASE_PATH "/common.css"
@@ -362,6 +363,7 @@ int active_socket[4] = {NONE, NONE, NONE, NONE}; // 0=FTP, 1=WWW, 2=PS3MAPI, 3=P
 #define _384KB_		   393216UL
 #define _512KB_		   524288UL
 #define _640KB_		   655360UL
+#define _768KB_		   786432UL
 #define  _1MB_		0x0100000UL
 #define  _2MB_		0x0200000UL
 #define  _3MB_		0x0300000UL
@@ -460,10 +462,17 @@ static volatile u8 working = 1;
 static u8 max_mapped = 0;
 static int init_delay = 0;
 
+static u8 CELL_PAD_CIRCLE_BTN = CELL_PAD_CTRL_CIRCLE;
+
 static bool syscalls_removed = false;
 
 static float c_firmware = 0.0f;
 static u8 dex_mode = 0;
+
+#ifndef LITE_EDITION
+static u8 chart_init = 0;
+static u8 chart_count = 0;
+#endif
 
 #ifdef SYS_ADMIN_MODE
 static u8 sys_admin = 0;
@@ -576,8 +585,9 @@ typedef struct
 	u8 ps2_rate;  // % ps2 fan speed
 	u8 nowarn;
 	u8 minfan;
+	u8 chart;
 
-	u8 padding4[9];
+	u8 padding4[8];
 
 	// combo settings
 
@@ -624,8 +634,10 @@ typedef struct
 	u8 autoplay;
 	u8 ps2emu;
 	u8 ps2config;
+	u8 minfo;
+	u8 deliso;
 
-	u8 padding9[10];
+	u8 padding9[8];
 
 	// profile settings
 
@@ -687,7 +699,7 @@ static void restore_settings(void);
 #endif
 
 #define MAX_ISO_PARTS				(16)
-#define ISO_EXTENSIONS				".cue|.iso.0|.bin|.img|.mdf"
+#define ISO_EXTENSIONS				".cue|.ccd|.iso.0|.bin|.img|.mdf"
 
 static CellRtcTick rTick, gTick;
 
@@ -845,6 +857,7 @@ static u8 mount_unk = EMU_OFF;
 
 #ifdef COBRA_ONLY
 
+#include "include/cue_file.h"
 #include "include/psxemu.h"
 #include "include/rawseciso.h"
 #include "include/netclient.h"
@@ -871,7 +884,6 @@ static u8 mount_unk = EMU_OFF;
 #include "include/process.h"
 #include "include/video_rec.h"
 #include "include/secure_file_id.h"
-#include "include/cue_file.h"
 
 #include "include/games_html.h"
 #include "include/games_xml.h"
@@ -906,7 +918,7 @@ static void http_response(int conn_s, char *header, const char *url, int code, c
 		char body[_2KB_];
 
 		if(*msg == '/')
-			{sprintf(body, "%s : OK", msg+1); show_msg(body);}
+			{sprintf(body, "%s : OK", msg + 1); if(!(webman_config->minfo & 2)) show_msg(body);}
 		else if(islike(msg, "http"))
 			sprintf(body, "<a style=\"%s\" href=\"%s\">%s</a>", HTML_URL_STYLE, msg, msg);
 #ifdef PKG_HANDLER
@@ -1220,6 +1232,11 @@ static void handleclient_www(u64 conn_s_p)
 			}
 
 			if(webman_config->bootd) wait_for("/dev_usb", webman_config->bootd); // wait for any usb
+
+			// is JAP?
+			int enter_button = 1;
+			xsetting_0AF1F161()->GetEnterButtonAssign(&enter_button);
+			CELL_PAD_CIRCLE_BTN = enter_button ? CELL_PAD_CTRL_CIRCLE : CELL_PAD_CTRL_CROSS;
 		}
 		else //if(conn_s_p == REFRESH_CONTENT)
 		{
@@ -1267,7 +1284,9 @@ static void handleclient_www(u64 conn_s_p)
 #ifdef NOSINGSTAR
 		no_singstar_icon();
 #endif
-
+#ifndef LITE_EDITION
+		chart_init = 0;
+#endif
 		sys_ppu_thread_t t_id;
 		sys_ppu_thread_create(&t_id, update_xml_thread, conn_s_p, THREAD_PRIO, THREAD_STACK_SIZE_UPDATE_XML, SYS_PPU_THREAD_CREATE_NORMAL, THREAD_NAME_CMD);
 
@@ -1284,8 +1303,8 @@ static void handleclient_www(u64 conn_s_p)
 			}
 			else
 			{
-				cobra_config->spoof_version = 0x0484;
-				cobra_config->spoof_revision = 67805;
+				cobra_config->spoof_version = 0x0485;
+				cobra_config->spoof_revision = 67869; // 0x0001091d
 			}
 
 			if( cobra_config->ps2softemu == 0 && cobra_get_ps2_emu_type() == PS2_EMU_SW )
@@ -1469,7 +1488,7 @@ parse_request:
 								}
 								cellFsClose(fsl);
 							}
-							show_msg(filename);
+							if(!(webman_config->minfo & 1)) show_msg(filename);
 							sprintf(header, "%s", filename);
 							init_delay = -10; // prevent show Not in XMB message
 						}
@@ -1705,6 +1724,11 @@ parse_request:
 				reload_xmb();
 				sprintf(param, "/index.ps3");
 			}
+			else
+			if(islike(param, "/crossdomain.xml"))
+			{
+				sprintf(param, "%s%s", HTML_BASE_PATH, "/crossdomain.xml");
+			}
 
  #ifdef SYS_ADMIN_MODE
 			if(islike(param, "/admin.ps3"))
@@ -1794,7 +1818,7 @@ parse_request:
 					if(!mc) http_response(conn_s, header, param, (ret == FAILED) ? CODE_BAD_REQUEST : CODE_DOWNLOAD_FILE, msg);
 				}
 
-				show_msg(msg);
+				if(!(webman_config->minfo & 1)) show_msg(msg);
 
 				wait_for_xml_download(filename, param);
 
@@ -1852,7 +1876,7 @@ parse_request:
 					if(!mc) http_response(conn_s, header, param, (ret == FAILED) ? CODE_BAD_REQUEST : CODE_INSTALL_PKG, msg);
 				}
 
-				show_msg(msg);
+				if(!(webman_config->minfo & 1)) show_msg(msg);
 
 				if(pkg_delete_after_install || do_restart)
 				{
@@ -2055,7 +2079,7 @@ parse_request:
 						if(*param2 == '?' ) {do_umount(false);  open_browser(url, 0);} else
 											{					open_browser(url, 1);} // example: /browser.ps3*regcam:reg?   More examples: http://www.psdevwiki.com/ps3/Xmb_plugin#Function_23
 
-						show_msg(url);
+						if(!(webman_config->minfo & 1)) show_msg(url);
 					}
 				}
 				else
@@ -2870,7 +2894,13 @@ retry_response:
 					if(is_net) goto html_response;
 
 					if(islike(param, "/favicon.ico")) {sprintf(param, "%s", wm_icons[iPS3]);} else
-					if((file_exists(param) == false) && !islike(param, "/dev_") && (*html_base_path == '/')) {strcpy(header, param); sprintf(param, "%s/%s", html_base_path, header);} // use html path (if path is omitted)
+					if(file_exists(param) == false) 
+					{
+						strcpy(header, param);
+
+						if(!islike(param, "/dev_") && (*html_base_path == '/')) {sprintf(param, "%s/%s", html_base_path, header);} // use html path (if path is omitted)
+						if(file_exists(param) == false) {sprintf(param, "%s/%s", HTML_BASE_PATH, header);} // try HTML_BASE_PATH
+					}
 
 					is_binary = is_ntfs || (cellFsStat(param, &buf) == CELL_FS_SUCCEEDED); allow_retry_response = true;
 				}
@@ -3889,7 +3919,7 @@ retry_response:
 
 					is_busy = false;
 #ifdef LAUNCHPAD
-					if(mobile_mode == LAUNCHPAD_MODE) {sprintf(templn, "%s LaunchPad: OK", STR_REFRESH); if(!mc) http_response(conn_s, header, param, CODE_HTTP_OK, templn); show_msg(templn); goto exit_handleclient_www;}
+					if(mobile_mode == LAUNCHPAD_MODE) {sprintf(templn, "%s LaunchPad: OK", STR_REFRESH); if(!mc) http_response(conn_s, header, param, CODE_HTTP_OK, templn); if(!(webman_config->minfo & 1)) show_msg(templn); goto exit_handleclient_www;}
 #endif
 				}
 

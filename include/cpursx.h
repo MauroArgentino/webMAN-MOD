@@ -9,6 +9,12 @@ static u32 in_cobra(u32 *mode)
 }
 */
 
+static s32 sys_sm_request_be_count(s32 *arg_1, s32 *total_time_in_sec, s32 *power_on_ctr, s32 *power_off_ctr)
+{
+	system_call_4(0x187, (u32)arg_1, (u32)total_time_in_sec, (u32)power_on_ctr, (u32)power_off_ctr);
+	return_to_user_prog(s32);
+}
+
 static void sys_get_cobra_version(void)
 {
 #ifdef COBRA_ONLY
@@ -55,6 +61,9 @@ static void get_cobra_version(char *cfw_info)
 	#endif
 #else
 		sprintf(cfw_info, "CEX");
+#endif
+#ifndef COBRA_ONLY
+		sprintf(cfw_info, " nonCobra");
 #endif
 }
 
@@ -179,35 +188,42 @@ static void cpu_rsx_stats(char *buffer, char *templn, char *param, u8 is_ps3_htt
 			pos = strstr(param, "max=");
 			if(pos) 
 				max_temp = get_valuen(param, "max=", 40, MAX_TEMPERATURE);
-			else if(strstr(param, "?m"))
+			else 
 			{
-				if((max_temp && !strstr(param, "dyn")) || strstr(param, "man"))
-					max_temp = FAN_MANUAL;
-				else
-					max_temp = webman_config->dyn_temp;
+				pos = strstr(param, "?m");
+				if(pos)
+				{
+					if((max_temp && !strstr(param, "dyn")) || strstr(param, "man"))
+						max_temp = FAN_MANUAL;
+					else
+						max_temp = webman_config->dyn_temp;
 
-				if(webman_config->fanc == DISABLED) enable_fan_control(ENABLE_SC8, templn);
+					if(webman_config->fanc == DISABLED) enable_fan_control(ENABLE_SC8, templn);
+				}
 			}
 		}
 
-		if(max_temp) //auto mode
+		if(pos)
 		{
-			if(strstr(param, "?u")) max_temp++;
-			if(strstr(param, "?d")) max_temp--;
-			webman_config->dyn_temp = RANGE(max_temp, 40, MAX_TEMPERATURE); // dynamic fan max temperature in °C
-			webman_config->man_speed = FAN_AUTO;
+			if(max_temp) //auto mode
+			{
+				if(strstr(param, "?u")) max_temp++;
+				if(strstr(param, "?d")) max_temp--;
+				webman_config->dyn_temp = RANGE(max_temp, 40, MAX_TEMPERATURE); // dynamic fan max temperature in °C
+				webman_config->man_speed = FAN_AUTO;
 
-			fan_ps2_mode=false;
-		}
-		else
-		{
-			if(strstr(param, "?u")) webman_config->man_rate++;
-			if(strstr(param, "?d")) webman_config->man_rate--;
-			webman_config->man_rate = RANGE(webman_config->man_rate, 20, 95); //%
+				fan_ps2_mode=false;
+			}
+			else
+			{
+				if(strstr(param, "?u")) webman_config->man_rate++;
+				if(strstr(param, "?d")) webman_config->man_rate--;
+				webman_config->man_rate = RANGE(webman_config->man_rate, 20, 95); //%
 
-			reset_fan_mode();
+				reset_fan_mode();
+			}
+			save_settings();
 		}
-		save_settings();
 	}
 
 	{ PS3MAPI_ENABLE_ACCESS_SYSCALL8 }
@@ -286,19 +302,34 @@ static void cpu_rsx_stats(char *buffer, char *templn, char *param, u8 is_ps3_htt
 	if(IS_ON_XMB) gTick=rTick; else if(gTick.tick==rTick.tick) cellRtcGetCurrentTick(&gTick);
 
 	////// play time //////
-	if(gTick.tick>rTick.tick)
+	if(gTick.tick > rTick.tick)
 	{
-		ss = (u32)((pTick.tick - gTick.tick)/1000000);
-		dd = (u32)(ss / 86400); ss = ss % 86400; hh = (u32)(ss / 3600); ss = ss % 3600; mm = (u32)(ss / 60); ss = ss % 60;
+		ss = (u32)((pTick.tick - gTick.tick) / 1000000);
+		dd = (u32)(ss / 86400); ss %= 86400; hh = (u32)(ss / 3600); ss %= 3600; mm = (u32)(ss / 60); ss %= 60;
 		if(dd<100) {sprintf( templn, "<label title=\"Play\">&#9737;</label> %id %02d:%02d:%02d<br>", dd, hh, mm, ss); buffer += concat(buffer, templn);}
 	}
 	///////////////////////
 
+	// get runtime data by @3141card
+	int32_t arg_1, total_time_in_sec, power_on_ctr, power_off_ctr;
+	sys_sm_request_be_count(&arg_1, &total_time_in_sec, &power_on_ctr, &power_off_ctr);
+
 	//// startup time /////
-	ss = (u32)((pTick.tick - rTick.tick)/1000000);
-	dd = (u32)(ss / 86400); ss = ss % 86400; hh = (u32)(ss / 3600); ss = ss % 3600; mm = (u32)(ss / 60); ss = ss % 60;
-	sprintf( templn, "<a href=\"/dev_hdd0/home/%08i\"><label title=\"Startup\">&#8986;</label> %id %02d:%02d:%02d</a>", xsetting_CC56EB2D()->GetCurrentUserNumber(), dd, hh, mm, ss); buffer += concat(buffer, templn);
+	ss = (u32)((pTick.tick - rTick.tick) / 1000000); total_time_in_sec += ss;
+	dd = (u32)(ss / 86400); ss %= 86400; hh = (u32)(ss / 3600); ss %= 3600; mm = (u32)(ss / 60); ss %= 60;
+
+	if(webman_config->chart)
+		sprintf( templn, "<a href=\"%s\">", CPU_RSX_CHART);
+	else
+		sprintf( templn, "<a href=\"/dev_hdd0/home/%08i\">", xsetting_CC56EB2D()->GetCurrentUserNumber()); buffer += concat(buffer, templn);
+
+	sprintf( templn, "<label title=\"Startup\">&#8986;</label> %id %02d:%02d:%02d</a>", dd, hh, mm, ss); buffer += concat(buffer, templn);
 	///////////////////////
+
+	ss = (u32)total_time_in_sec;
+	dd = (u32)(ss / 86400); ss %= 86400; hh = (u32)(ss / 3600); ss %= 3600; mm = (u32)(ss / 60); ss %= 60;
+
+	sprintf(templn, "</font><H1>&#x26A1; %'id %02d:%02d:%02d • %'i ON • %'i OFF (%i)</H1>", dd, hh, mm, ss, power_on_ctr, power_off_ctr, power_on_ctr - power_off_ctr); buffer += concat(buffer, templn);
 
 	if(isDir("/dev_bdvd"))
 	{
@@ -319,7 +350,7 @@ static void cpu_rsx_stats(char *buffer, char *templn, char *param, u8 is_ps3_htt
 		char net_type[8] = "", ip[ip_size] = "-";
 		get_net_info(net_type, ip);
 
-		sprintf(templn, "<hr></font><h2>"
+		sprintf(templn, "<hr><h2>"
 						"<input type=button onclick=\"document.getElementById('ht').style.display='block';\" value='&#x25BC;'> "
 						"<a class=\"s\" href=\"/setup.ps3\">"
 						"Firmware : %s %s<br>"

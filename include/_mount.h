@@ -885,6 +885,13 @@ static void do_umount_iso(void)
 		wait_for("/dev_bdvd", 1);
 		cobra_disc_auth();
 	}
+
+	char filename[MAX_PATH_LEN];
+	if(read_file(DEL_CACHED_ISO, filename, MAX_PATH_LEN, 0))
+	{
+		cellFsUnlink(DEL_CACHED_ISO);
+		cellFsUnlink(filename);
+	}
 }
 #endif
 
@@ -990,6 +997,8 @@ static void cache_file_to_hdd(char *source, char *target, const char *basepath, 
 		sprintf(target, "/dev_hdd0%s", basepath);
 		cellFsMkdir(basepath, DMODE);
 
+		cellFsUnlink(DEL_CACHED_ISO);
+
 		strcat(target, strrchr(source, '/')); // add file name
 
 		if((copy_in_progress || fix_in_progress) == false && file_exists(target) == false)
@@ -1007,6 +1016,10 @@ static void cache_file_to_hdd(char *source, char *target, const char *basepath, 
 			{
 				cellFsUnlink(target);
 				show_msg((char*)STR_CPYABORT);
+			}
+			else if(webman_config->deliso)
+			{
+				save_file(DEL_CACHED_ISO, target, SAVE_ALL);
 			}
 		}
 
@@ -1308,7 +1321,7 @@ static void mount_thread(u64 action)
 
 	if(action == EXPLORE_CLOSE_ALL) {action = MOUNT_NORMAL; explore_close_all(_path);}
 
-	if(action) show_msg(_path);
+	if(action && !(webman_config->minfo & 1)) show_msg(_path);
 
 	cellFsUnlink(WMNOSCAN); // remove wm_noscan if a PS2ISO has been mounted
 
@@ -1343,7 +1356,7 @@ exit_mount:
 
 		// show loaded path
 		strcat(msg, "\" "); strcat(msg, STR_LOADED2);
-		show_msg(msg);
+		if(!(webman_config->minfo & 2)) show_msg(msg);
 	}
 
 	// ---------------

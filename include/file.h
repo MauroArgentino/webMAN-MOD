@@ -417,7 +417,13 @@ int file_copy(char *file1, char *file2, u64 maxbytes)
 		if(check_666)
 		{
 			flen1 = strlen(file1) - 6;
-			check_666 = islike(file1 + flen1, ".666"); if(check_666 && !islike(file1 + flen1, ".66600")) return 0;
+			check_666 = islike(file1 + flen1, ".666");
+			if(check_666)
+			{
+				if(!islike(file1 + flen1, ".66600")) return 0; // ignore .666xx
+				u16 flen2 = strlen(file2) - 6;
+				if(islike(file2 + flen2, ".66600")) file2[flen2] = NULL; // remove .66600
+			}
 		}
 
 		if(buf.st_size > get_free_space("/dev_hdd0")) return FAILED;
@@ -441,7 +447,7 @@ int file_copy(char *file1, char *file2, u64 maxbytes)
 		return buf.st_size;
 	}
 
-	u64 pos = 0;
+	u64 pos;
 	u8 merge_part = 0;
 
 merge_next:
@@ -483,8 +489,9 @@ next_part:
 			}
 #endif
 			// copy_file
-			if(is_ntfs2 || cellFsOpen(file2, CELL_FS_O_CREAT | CELL_FS_O_WRONLY | CELL_FS_O_TRUNC, &fd2, 0, 0) == CELL_FS_SUCCEEDED)
+			if(is_ntfs2 || merge_part || cellFsOpen(file2, CELL_FS_O_CREAT | CELL_FS_O_WRONLY | CELL_FS_O_TRUNC, &fd2, 0, 0) == CELL_FS_SUCCEEDED)
 			{
+				pos = 0;
 				while(size > 0)
 				{
 					if(copy_aborted) break;
@@ -558,7 +565,7 @@ next_part:
 					else
 						sprintf(file2 + flen - 2, "%02i", part);
 
-					part++; part_size = 0xFFFF0000ULL; pos = 0;
+					part++; part_size = 0xFFFF0000ULL;
 					goto next_part;
 				}
 				else
